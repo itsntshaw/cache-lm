@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cache-lm"
+version = "0.0.0"
+description = "High-efficiency multi-agent orchestration (LangGraph)"
+requires-python = ">=3.11"
+dependencies = [
+  "langgraph>=0.6.0",
+  "langchain-core>=0.3.0",
+  "langchain-openai>=0.3.0",
+  "langgraph-checkpoint-sqlite",
+]
+
+[project.scripts]
+cache-lm = "cache_lm.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "integration: tests that call external services (guard with RUN_LLM_TESTS=1)",
+]
