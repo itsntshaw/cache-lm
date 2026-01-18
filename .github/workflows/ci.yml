@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Run pre-commit (format/lint)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pre-commit
+          pre-commit run --all-files
+
+  offline-checks:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Offline checks
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install pytest
+          python -m pytest -q
+
+  network-checks:
+    runs-on: ubuntu-22.04
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # These are non-secret, but I allow either repo variables or secrets to
+      # make CI setup less brittle across forks/orgs.
+      OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL || secrets.OPENAI_BASE_URL }}
+      OPENAI_MODEL: ${{ vars.OPENAI_MODEL || secrets.OPENAI_MODEL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Decide whether to run network checks
+        id: gate
+        shell: bash
+        run: |
+          echo "OPENAI_API_KEY set: $([[ -n \"${OPENAI_API_KEY:-}\" ]] && echo yes || echo no)"
+          echo "OPENAI_BASE_URL set: $([[ -n \"${OPENAI_BASE_URL:-}\" ]] && echo yes || echo no)"
+          echo "OPENAI_MODEL set: $([[ -n \"${OPENAI_MODEL:-}\" ]] && echo yes || echo no)"
+
+          run_network="false"
+          if [[ -n "${OPENAI_API_KEY:-}" ]] \
+            && [[ -n "${OPENAI_BASE_URL:-}" ]] \
+            && [[ -n "${OPENAI_MODEL:-}" ]]; then
+            run_network="true"
+          fi
+          echo "Computed run_network=${run_network}"
+          printf 'run_network=%s\n' "${run_network}" >> "${GITHUB_OUTPUT}"
+          echo "Wrote outputs:"
+          cat "${GITHUB_OUTPUT}"
+
+      - name: Debug gate output
+        run: echo "steps.gate.outputs.run_network=${{ steps.gate.outputs.run_network }}"
+
+      - name: Network checks skipped (missing secrets/vars)
+        if: ${{ steps.gate.outputs.run_network != 'true' }}
+        run: |
+          echo "Skipping network checks because one or more required settings are missing:"
+          echo "- secrets.OPENAI_API_KEY"
+          echo "- vars.OPENAI_BASE_URL (or secrets.OPENAI_BASE_URL)"
+          echo "- vars.OPENAI_MODEL (or secrets.OPENAI_MODEL)"
+
+      - name: Set up Python
+        if: ${{ steps.gate.outputs.run_network == 'true' }}
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        if: ${{ steps.gate.outputs.run_network == 'true' }}
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install pytest
+
+      - name: Integration tests (live endpoint)
+        if: ${{ steps.gate.outputs.run_network == 'true' }}
+        env:
+          RUN_LLM_TESTS: "1"
+          OPENAI_TEMPERATURE: "0"
+          OPENAI_MAX_TOKENS: "128"
+        run: python -m pytest -q -m integration

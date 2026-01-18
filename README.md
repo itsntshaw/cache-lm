@@ -63,6 +63,14 @@ I also included a screenshot of the Studio UI and the graph:
 
 I keep unit tests offline and deterministic, and I gate all live endpoint tests behind `RUN_LLM_TESTS=1`. Details: `tests/README.md`.
 
+## CI
+
+I run CI via GitHub Actions (`.github/workflows/ci.yml`). It runs:
+
+- `pre-commit run --all-files` (format/lint)
+- offline unit tests (`python -m pytest -q`) on Python 3.11 and 3.13
+- optional live integration tests when `OPENAI_*` secrets/vars are configured in the repo settings
+
 ## CLI Usage
 
 - Manual fingerprint: `cache-lm manual-stats`
